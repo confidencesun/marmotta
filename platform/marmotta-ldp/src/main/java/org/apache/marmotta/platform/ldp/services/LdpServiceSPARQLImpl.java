@@ -56,10 +56,9 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * LDP Service default implementation
+ * LDP Service SPARQL implementation
  *
- * @author Sergio Fernández
- * @author Jakob Frank
+ * @author Qihong Lin
  */
 @ApplicationScoped
 public class LdpServiceSPARQLImpl implements LdpService {
