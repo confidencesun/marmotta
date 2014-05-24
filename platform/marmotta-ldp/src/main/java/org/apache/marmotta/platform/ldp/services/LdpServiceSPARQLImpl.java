@@ -20,6 +20,18 @@ package org.apache.marmotta.platform.ldp.services;
 import info.aduna.iteration.FilterIteration;
 import info.aduna.iteration.Iterations;
 import info.aduna.iteration.UnionIteration;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Date;
+import java.util.List;
+
+import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Inject;
+import javax.ws.rs.core.EntityTag;
+import javax.ws.rs.core.Link;
+
 import org.apache.commons.io.IOUtils;
 import org.apache.marmotta.commons.vocabulary.DCTERMS;
 import org.apache.marmotta.commons.vocabulary.LDP;
@@ -34,26 +46,28 @@ import org.apache.marmotta.platform.ldp.patch.model.PatchLine;
 import org.apache.marmotta.platform.ldp.patch.parser.ParseException;
 import org.apache.marmotta.platform.ldp.patch.parser.RdfPatchParserImpl;
 import org.apache.marmotta.platform.ldp.util.LdpUtils;
-import org.openrdf.model.*;
+import org.openrdf.model.Literal;
+import org.openrdf.model.Resource;
+import org.openrdf.model.Statement;
+import org.openrdf.model.URI;
+import org.openrdf.model.Value;
+import org.openrdf.model.ValueFactory;
 import org.openrdf.model.impl.ValueFactoryImpl;
 import org.openrdf.model.vocabulary.RDF;
+import org.openrdf.query.BooleanQuery;
+import org.openrdf.query.MalformedQueryException;
+import org.openrdf.query.QueryEvaluationException;
+import org.openrdf.query.QueryLanguage;
 import org.openrdf.repository.RepositoryConnection;
 import org.openrdf.repository.RepositoryException;
 import org.openrdf.repository.RepositoryResult;
-import org.openrdf.rio.*;
+import org.openrdf.rio.RDFFormat;
+import org.openrdf.rio.RDFHandlerException;
+import org.openrdf.rio.RDFParseException;
+import org.openrdf.rio.RDFWriter;
+import org.openrdf.rio.Rio;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.annotation.PostConstruct;
-import javax.enterprise.context.ApplicationScoped;
-import javax.inject.Inject;
-import javax.ws.rs.core.EntityTag;
-import javax.ws.rs.core.Link;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Date;
-import java.util.List;
 
 /**
  * LDP Service SPARQL implementation
@@ -82,14 +96,24 @@ public class LdpServiceSPARQLImpl implements LdpService {
         return ValueFactoryImpl.getInstance().createURI(resource);
     }
 
+    //Done
     @Override
     public boolean exists(RepositoryConnection connection, String resource) throws RepositoryException {
         return exists(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public boolean exists(RepositoryConnection connection, URI resource) throws RepositoryException {
-        return connection.hasStatement(resource, null, null, true, ldpContext);
+    	String queryString = "ASK { <"+ resource.stringValue()+ "> ?p ?o . }";
+    	try {
+			BooleanQuery query= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString);
+			return query.evaluate();
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e.getMessage());
+		} catch (QueryEvaluationException e){
+			throw new RepositoryException(e.getMessage());
+		}
     }
 
     @Override
