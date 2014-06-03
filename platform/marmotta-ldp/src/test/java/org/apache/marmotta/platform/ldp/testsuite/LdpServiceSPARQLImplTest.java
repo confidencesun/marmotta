@@ -18,7 +18,11 @@
 package org.apache.marmotta.platform.ldp.testsuite;
 
 import java.io.IOException;
+import java.io.InputStream;
 
+import org.apache.marmotta.commons.vocabulary.LDP;
+import org.apache.marmotta.platform.core.test.base.EmbeddedMarmotta;
+import org.apache.marmotta.platform.ldp.api.LdpService;
 import org.apache.marmotta.platform.ldp.services.LdpServiceSPARQLImpl;
 import org.junit.After;
 import org.junit.Assert;
@@ -26,49 +30,64 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 import org.openrdf.model.Statement;
+import org.openrdf.model.impl.ValueFactoryImpl;
 import org.openrdf.model.vocabulary.RDF;
 import org.openrdf.repository.Repository;
 import org.openrdf.repository.RepositoryConnection;
 import org.openrdf.repository.RepositoryException;
 import org.openrdf.repository.RepositoryResult;
+import org.openrdf.repository.sail.SailRepository;
 import org.openrdf.rio.RDFFormat;
 import org.openrdf.rio.RDFParseException;
+import org.openrdf.sail.memory.MemoryStore;
 
 /**
- * LDP Test Cases Manifest test
+ * LDP SPARQL Implementation Test Cases
  *
- * @author Sergio Fernández
+ * @author Qihong Lin
  */
 public class LdpServiceSPARQLImplTest {
-
-    protected Repository repo;
+	
+	public final static String BASE = "http://www.w3.org/TR/ldp-test-cases/";
+	public final static String ROOT_PATH = "/testsuite/";
+	public final static String FOAF_EXAMPE = "foaf-example";
+	
+    private static EmbeddedMarmotta marmotta;
+    private static LdpService lpdService;
+    private static Repository repo;
 
     @Before
     public final void before() throws RepositoryException, RDFParseException, IOException {
-        String path = LdpTestCases.ROOT_PATH + LdpTestCases.FOAF_EXAMPE + ".rdf";
-        repo = LdpTestCasesUtils.loadData(path, RDFFormat.RDFXML);
-        Assume.assumeNotNull(repo);
+    	 //marmotta = new EmbeddedMarmotta();
+    	 //lpdService = marmotta.getService(LdpService.class);
+    	 lpdService = new LdpServiceSPARQLImpl();
+    	 String path = ROOT_PATH + FOAF_EXAMPE + ".rdf";
+         repo = loadData(path, RDFFormat.RDFXML);
+         Assume.assumeNotNull(repo);
     }
 
     @After
     public final void after() throws RepositoryException {
-        if (repo != null) {
-            repo.shutDown();
-            repo = null;
-        }
+    	 if (marmotta !=null){
+    		 marmotta.shutdown();
+    	 }
+    	 if (repo != null) {
+             repo.shutDown();
+             repo = null;
+         }
+         lpdService = null;
     }
 
     @Test
-    public void testNotEmpty() throws RepositoryException, RDFParseException, IOException {
+    public void testReopsitoryNotEmpty() throws RepositoryException, RDFParseException, IOException {
         RepositoryConnection conn = repo.getConnection();
         try {
             conn.begin();
-            //ValueFactory vf = conn.getValueFactory();
             Assert.assertFalse(conn.isEmpty());
             RepositoryResult<Statement> statements = conn.getStatements(null, RDF.TYPE, conn.getValueFactory().createURI("http://xmlns.com/foaf/0.1/", "Person"), false);
             Assert.assertTrue(statements.hasNext());
+            Assert.assertEquals(LDP.NAMESPACE, statements.next().getContext().stringValue());
             statements.close();
-            //TODO: check test cases are actually there
         } finally {
             conn.commit();
             conn.close();
@@ -76,20 +95,54 @@ public class LdpServiceSPARQLImplTest {
     }
     
     @Test
-    public void testResourceExist() throws RepositoryException, RDFParseException, IOException {
-        RepositoryConnection conn = repo.getConnection();
-        LdpServiceSPARQLImpl service= new LdpServiceSPARQLImpl();
+    public void testExists() throws RepositoryException, RDFParseException, IOException {
+    	RepositoryConnection conn = repo.getConnection();
         try {
             conn.begin();
-            boolean me = service.exists(conn, "http://www.example.com/ldp#me");
-            boolean unknown = service.exists(conn, "http://www.example.com/ldp#unknown");
+            boolean me = lpdService.exists(conn, "http://www.example.com/ldp#me");
+            boolean unknown = lpdService.exists(conn, "http://www.example.com/ldp#unknown");
             Assert.assertTrue(me);
             Assert.assertFalse(unknown);
-            //TODO: check test cases are actually there
         } finally {
             conn.commit();
             conn.close();
         }
     }
-
+    
+    
+    
+    /**
+     * Load test cases' data
+     *
+     * @param path path to the manifest file
+     * @param format serialization format used in the file
+     * @return In-Memory repository with the data
+     * @throws org.openrdf.rio.RDFParseException
+     * @throws org.openrdf.repository.RepositoryException
+     * @throws java.io.IOException
+     */
+    private Repository loadData(String path, RDFFormat format) throws RDFParseException, RepositoryException, IOException {
+        Repository repo = new SailRepository(new MemoryStore());
+        repo.initialize();
+        RepositoryConnection conn = repo.getConnection();
+        try {
+            conn.begin();
+            conn.clear();
+            InputStream is = LdpServiceSPARQLImplTest.class.getResourceAsStream(path);
+            if (is == null) {
+                throw new IOException("File not found at: " + path);
+            } else {
+                try {
+                    conn.add(is, BASE, format, ValueFactoryImpl.getInstance().createURI(LDP.NAMESPACE));
+                } finally {
+                    is.close();
+                }
+            }
+            conn.commit();
+        } finally {
+            conn.close();
+        }
+        return repo;
+    }
+    
 }

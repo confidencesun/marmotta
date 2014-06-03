@@ -28,6 +28,7 @@ import java.util.Date;
 import java.util.List;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.enterprise.inject.Alternative;
 import javax.inject.Inject;
 import javax.ws.rs.core.EntityTag;
 import javax.ws.rs.core.Link;
@@ -74,6 +75,7 @@ import org.slf4j.LoggerFactory;
  *
  * @author Qihong Lin
  */
+@Alternative
 @ApplicationScoped
 public class LdpServiceSPARQLImpl implements LdpService {
 
@@ -105,14 +107,14 @@ public class LdpServiceSPARQLImpl implements LdpService {
     //Done
     @Override
     public boolean exists(RepositoryConnection connection, URI resource) throws RepositoryException {
-    	String queryString = "ASK { <"+ resource.stringValue()+ "> ?p ?o . }";
+    	String queryString = "ASK FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ resource.stringValue()+ "> ?p ?o . }";
     	try {
 			BooleanQuery query= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString);
 			return query.evaluate();
 		} catch (MalformedQueryException e) {
-			throw new RepositoryException(e.getMessage());
+			return false;
 		} catch (QueryEvaluationException e){
-			throw new RepositoryException(e.getMessage());
+			return false;
 		}
     }
 
