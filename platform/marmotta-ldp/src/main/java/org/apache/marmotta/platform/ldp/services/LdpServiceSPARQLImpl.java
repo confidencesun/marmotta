@@ -17,15 +17,16 @@
  */
 package org.apache.marmotta.platform.ldp.services;
 
-import info.aduna.iteration.FilterIteration;
 import info.aduna.iteration.Iterations;
 import info.aduna.iteration.UnionIteration;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.inject.Alternative;
@@ -39,6 +40,7 @@ import org.apache.marmotta.commons.vocabulary.LDP;
 import org.apache.marmotta.platform.core.api.config.ConfigurationService;
 import org.apache.marmotta.platform.ldp.api.LdpBinaryStoreService;
 import org.apache.marmotta.platform.ldp.api.LdpService;
+import org.apache.marmotta.platform.ldp.exceptions.IncompatibleResourceTypeException;
 import org.apache.marmotta.platform.ldp.exceptions.InvalidInteractionModelException;
 import org.apache.marmotta.platform.ldp.exceptions.InvalidModificationException;
 import org.apache.marmotta.platform.ldp.patch.InvalidPatchDocumentException;
@@ -56,15 +58,22 @@ import org.openrdf.model.ValueFactory;
 import org.openrdf.model.impl.ValueFactoryImpl;
 import org.openrdf.model.vocabulary.RDF;
 import org.openrdf.query.BooleanQuery;
+import org.openrdf.query.GraphQuery;
+import org.openrdf.query.GraphQueryResult;
 import org.openrdf.query.MalformedQueryException;
 import org.openrdf.query.QueryEvaluationException;
 import org.openrdf.query.QueryLanguage;
+import org.openrdf.query.TupleQuery;
+import org.openrdf.query.TupleQueryResult;
+import org.openrdf.query.Update;
+import org.openrdf.query.UpdateExecutionException;
 import org.openrdf.repository.RepositoryConnection;
 import org.openrdf.repository.RepositoryException;
 import org.openrdf.repository.RepositoryResult;
 import org.openrdf.rio.RDFFormat;
 import org.openrdf.rio.RDFHandlerException;
 import org.openrdf.rio.RDFParseException;
+import org.openrdf.rio.RDFParserRegistry;
 import org.openrdf.rio.RDFWriter;
 import org.openrdf.rio.Rio;
 import org.slf4j.Logger;
@@ -101,12 +110,12 @@ public class LdpServiceSPARQLImpl implements LdpService {
     //Done
     @Override
     public boolean exists(RepositoryConnection connection, String resource) throws RepositoryException {
-        return exists(connection, buildURI(resource));
+    	return exists(connection, buildURI(resource));
     }
 
     //Done
     @Override
-    public boolean exists(RepositoryConnection connection, URI resource) throws RepositoryException {
+    public boolean exists(RepositoryConnection connection, URI resource) throws RepositoryException {    	
     	String queryString = "ASK FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ resource.stringValue()+ "> ?p ?o . }";
     	try {
 			BooleanQuery query= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString);
@@ -118,98 +127,131 @@ public class LdpServiceSPARQLImpl implements LdpService {
 		}
     }
 
+    //Done
     @Override
     public boolean hasType(RepositoryConnection connection, URI resource, URI type) throws RepositoryException {
-        return connection.hasStatement(resource, RDF.TYPE, type, true, ldpContext);
+    	String queryString = "ASK FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ resource.stringValue()+ "> rdf:type " + "<" + type.stringValue() + "> . }";
+    	try {
+			BooleanQuery query= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString);
+			return query.evaluate();
+		} catch (MalformedQueryException e) {
+			return false;
+		} catch (QueryEvaluationException e){
+			return false;
+		}
     }
 
+    //Done
     @Override
-    public List<Statement> getLdpTypes(RepositoryConnection connection, String resource) throws RepositoryException {
-        return getLdpTypes(connection, buildURI(resource));
+    public List<Statement> getLdpTypes(RepositoryConnection connection, String resource) throws RepositoryException {   	
+    	return getLdpTypes(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public List<Statement> getLdpTypes(RepositoryConnection connection, URI resource) throws RepositoryException {
-        return Iterations.asList(new FilterIteration<Statement, RepositoryException>(connection.getStatements(resource, RDF.TYPE, null, false, ldpContext)) {
-            @Override
-            protected boolean accept(Statement statement) {
-                final Value object = statement.getObject();
-                return object instanceof URI && object.stringValue().startsWith(LDP.NAMESPACE);
-            }
-        }); //FIXME
+    	String queryString = "CONSTRUCT   { <"+ resource.stringValue()+ "> rdf:type " + " ?type . } FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ resource.stringValue()+ "> rdf:type " + " ?type . FILTER ( isIRI(?type) &&  strStarts ( str (?type) , '" + LDP.NAMESPACE + "') )}";
+    	List<Statement> list = new ArrayList<Statement>();
+    	try {
+			GraphQuery query= connection.prepareGraphQuery(QueryLanguage.SPARQL, queryString);
+			GraphQueryResult result = query.evaluate();
+			list = Iterations.asList(result);
+			return list;
+		} catch (MalformedQueryException e) {
+			return list;
+		} catch (QueryEvaluationException e){
+			return list;
+		}
     }
 
+    //Done
     @Override
     public boolean isRdfSourceResource(RepositoryConnection connection, String resource) throws RepositoryException {
-        return isRdfSourceResource(connection, buildURI(resource));
+    	return isRdfSourceResource(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public boolean isRdfSourceResource(RepositoryConnection connection, URI uri) throws RepositoryException {
-        return connection.hasStatement(uri, RDF.TYPE, LDP.RDFSource, true, ldpContext);
+    	String queryString = "ASK FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> rdf:type " + "<" + LDP.RDFSource.stringValue() + "> . }";
+    	try {
+			BooleanQuery query= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString);
+			return query.evaluate();
+		} catch (MalformedQueryException e) {
+			return false;
+		} catch (QueryEvaluationException e){
+			return false;
+		}
     }
 
+    //Done
     @Override
     public boolean isNonRdfSourceResource(RepositoryConnection connection, String resource) throws RepositoryException {
         return isNonRdfSourceResource(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public boolean isNonRdfSourceResource(RepositoryConnection connection, URI uri) throws RepositoryException {
-        return connection.hasStatement(uri, RDF.TYPE, LDP.NonRDFSource, true, ldpContext);
+    	String queryString = "ASK FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> rdf:type " + "<" + LDP.NonRDFSource.stringValue() + "> . }";
+    	try {
+			BooleanQuery query= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString);
+			return query.evaluate();
+		} catch (MalformedQueryException e) {
+			return false;
+		} catch (QueryEvaluationException e){
+			return false;
+		}
     }
 
-
+    //Done
     @Override
     public URI getRdfSourceForNonRdfSource(final RepositoryConnection connection, URI uri) throws RepositoryException {
-        final FilterIteration<Statement, RepositoryException> it =
-                new FilterIteration<Statement, RepositoryException>(connection.getStatements(uri, DCTERMS.isFormatOf, null, true, ldpContext)) {
-                    @Override
-                    protected boolean accept(Statement statement) throws RepositoryException {
-                        return statement.getObject() instanceof URI
-                                && connection.hasStatement((URI) statement.getObject(), RDF.TYPE, LDP.RDFSource, true, ldpContext);
-                    }
-                };
-        try {
-            if (it.hasNext()) {
-                return (URI) it.next().getObject();
-            } else {
-                return null;
-            }
-        }finally {
-            it.close();
-        }
+    	String queryString = "SELECT ?o FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> <" + DCTERMS.isFormatOf.stringValue() + "> ?o . ?o rdf:type <" + LDP.RDFSource.stringValue() + "> . FILTER ( isIRI(?o) )}";
+    	try {
+			TupleQuery query= connection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
+			TupleQueryResult result = query.evaluate();
+			if (! result.hasNext()){
+				return null;
+			}else {
+				return buildURI(result.next().getValue("o").stringValue());
+			}
+		} catch (MalformedQueryException e) {
+			return null;
+		} catch (QueryEvaluationException e){
+			return null;
+		}
     }
 
+    //Done
     @Override
     public URI getRdfSourceForNonRdfSource(RepositoryConnection connection, String resource) throws RepositoryException {
         return getRdfSourceForNonRdfSource(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public URI getNonRdfSourceForRdfSource(RepositoryConnection connection, String resource) throws RepositoryException {
         return getNonRdfSourceForRdfSource(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public URI getNonRdfSourceForRdfSource(final RepositoryConnection connection, URI uri) throws RepositoryException {
-        final FilterIteration<Statement, RepositoryException> it =
-                new FilterIteration<Statement, RepositoryException>(connection.getStatements(uri, DCTERMS.hasFormat, null, true, ldpContext)) {
-                    @Override
-                    protected boolean accept(Statement statement) throws RepositoryException {
-                        return statement.getObject() instanceof URI
-                                && connection.hasStatement((URI) statement.getObject(), RDF.TYPE, LDP.NonRDFSource, true, ldpContext);
-                    }
-                };
-        try {
-            if (it.hasNext()) {
-                return (URI) it.next().getObject();
-            } else {
-                return null;
-            }
-        }finally {
-            it.close();
-        }
+    	String queryString = "SELECT ?o FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> <" + DCTERMS.hasFormat.stringValue() + "> ?o . ?o rdf:type <" + LDP.NonRDFSource.stringValue() + "> . FILTER ( isIRI(?o) )}";
+    	try {
+			TupleQuery query= connection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
+			TupleQueryResult result = query.evaluate();
+			if (! result.hasNext()){
+				return null;
+			}else {
+				return buildURI(result.next().getValue("o").stringValue());
+			}
+		} catch (MalformedQueryException e) {
+			return null;
+		} catch (QueryEvaluationException e){
+			return null;
+		}
     }
 
     @Override
@@ -266,21 +308,26 @@ public class LdpServiceSPARQLImpl implements LdpService {
         }
         return null;
     }
+    
+    //Done
     @Override
     public String addResource(RepositoryConnection connection, String container, String resource, String type, InputStream stream) throws RepositoryException, IOException, RDFParseException {
         return addResource(connection, buildURI(container), buildURI(resource), InteractionModel.LDPC, type, stream);
     }
 
+    //Done
     @Override
     public String addResource(RepositoryConnection connection, URI container, URI resource, String type, InputStream stream) throws RepositoryException, IOException, RDFParseException {
         return addResource(connection, container, resource, InteractionModel.LDPC, type, stream);
     }
 
+    //Done
     @Override
     public String addResource(RepositoryConnection connection, String container, String resource, InteractionModel interactionModel, String type, InputStream stream) throws RepositoryException, IOException, RDFParseException {
         return addResource(connection, buildURI(container), buildURI(resource), interactionModel, type, stream);
     }
 
+    //Done
     @Override
     public String addResource(RepositoryConnection connection, URI container, URI resource, InteractionModel interactionModel, String type, InputStream stream) throws RepositoryException, IOException, RDFParseException {
         ValueFactory valueFactory = connection.getValueFactory();
@@ -289,58 +336,59 @@ public class LdpServiceSPARQLImpl implements LdpService {
         // container and meta triples!
 
         final Literal now = valueFactory.createLiteral(new Date());
-
-        // FIXME: This is redundant if the container already existed as a Resource!
-        connection.add(container, RDF.TYPE, LDP.Resource, ldpContext);
-        connection.add(container, RDF.TYPE, LDP.RDFSource, ldpContext);
-        // end
-        connection.add(container, RDF.TYPE, LDP.Container, ldpContext);
-        // TODO: For the future we might need to check for other container types here first.
-        connection.add(container, RDF.TYPE, LDP.BasicContainer, ldpContext);
-
-        connection.remove(container, DCTERMS.modified, null, ldpContext);
-        connection.add(container, DCTERMS.modified, now, ldpContext);
-
-        connection.add(resource, RDF.TYPE, LDP.Resource, ldpContext);
-        connection.add(resource, RDF.TYPE, LDP.RDFSource, ldpContext);
-        connection.add(resource, ldpInteractionModelProperty, interactionModel.getUri(), ldpContext);
-        connection.add(resource, DCTERMS.created, now, ldpContext);
-        connection.add(resource, DCTERMS.modified, now, ldpContext);
-
+        
+        String updateString = "WITH <" + LDP.NAMESPACE + "> "
+        		+ " DELETE { <" + container.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }"
+        		+ " INSERT { <" + container.stringValue() + "> rdf:type <" + LDP.Resource.stringValue() + "> . "
+        		+ " <" + container.stringValue() + "> rdf:type <" + LDP.RDFSource.stringValue() + "> . "
+        		+ " <" + container.stringValue() + "> rdf:type <" + LDP.Container.stringValue() + "> . "
+        		+ " <" + container.stringValue() + "> rdf:type <" + LDP.BasicContainer.stringValue() + "> . "
+        		+ " <" + container.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . "
+        		+ " <" + resource.stringValue() + "> rdf:type <" + LDP.Resource.stringValue() + "> . "
+        		+ " <" + resource.stringValue() + "> rdf:type <" + LDP.RDFSource.stringValue() + "> . "
+        		+ " <" + resource.stringValue() + "> <" + ldpInteractionModelProperty.stringValue() + "> <" + interactionModel.getUri().stringValue() + "> . "
+        		+ " <" + resource.stringValue() + "> <" + DCTERMS.created.stringValue() + "> " + now.toString() + " . "
+        		+ " <" + resource.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . ";
+        
         // Add the bodyContent
         final RDFFormat rdfFormat = Rio.getParserFormatForMIMEType(type);
         if (rdfFormat == null) {
-            log.debug("POST creates new LDP-NR, because no suitable RDF parser found for type {}", type);
             final Literal format = valueFactory.createLiteral(type);
             final URI binaryResource = valueFactory.createURI(resource.stringValue() + LdpUtils.getExtension(type));
+            updateString += " <" + container.stringValue() + "> <" + LDP.contains.stringValue() + "> <" +binaryResource.stringValue() + "> . "
+            		+ " <" + binaryResource.stringValue() + "> <" + DCTERMS.created.stringValue() + "> " + now.toString() + " . "
+            		+ " <" + binaryResource.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . "
+            		+ " <" + binaryResource.stringValue() + "> rdf:type <" + LDP.Resource.stringValue() + "> . "
+            		+ " <" + binaryResource.stringValue() + "> rdf:type <" + LDP.NonRDFSource.stringValue() + "> . "
+            		+ " <" + binaryResource.stringValue() + "> <" + DCTERMS.format.stringValue() + "> " +format.toString() + " . "
+            		+ " <" + binaryResource.stringValue() + "> <" + DCTERMS.isFormatOf.stringValue() + "> <" +resource.stringValue() + "> . "
+            		+ " <" + resource.stringValue() + "> <" + DCTERMS.hasFormat.stringValue() + "> <" +binaryResource.stringValue() + "> . ";
 
-            connection.add(container, LDP.contains, binaryResource, ldpContext);
-
-            connection.add(binaryResource, DCTERMS.created, now, ldpContext);
-            connection.add(binaryResource, DCTERMS.modified, now, ldpContext);
-            connection.add(binaryResource, RDF.TYPE, LDP.Resource, ldpContext);
-            connection.add(binaryResource, RDF.TYPE, LDP.NonRDFSource, ldpContext);
-
-            //extra triples
-            //TODO: check conformance with 6.2.3.12
-            connection.add(binaryResource, DCTERMS.format, format, ldpContext); //nie:mimeType ?
-            connection.add(binaryResource, DCTERMS.isFormatOf, resource, ldpContext);
-            connection.add(resource, DCTERMS.hasFormat, binaryResource, ldpContext);
-
-            //TODO: something else?
-
-            binaryStore.store(binaryResource, stream);//TODO: exceptions control
-
+        } else {
+        	log.debug("POST creates new LDP-SR, data provided as {}", rdfFormat.getName());
+        	updateString += " <" + container.stringValue() + "> <" + LDP.contains.stringValue() + "> <" +resource.stringValue() + "> . ";
+        }
+        
+        updateString += " } WHERE { OPTIONAL { <" + container.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date } }";
+        log.debug(updateString);
+		try {
+			Update update = connection.prepareUpdate(QueryLanguage.SPARQL, updateString);
+			update.execute();
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (UpdateExecutionException e) {
+			throw new RepositoryException(e);
+		}
+        
+        if(rdfFormat==null){
+        	final URI binaryResource = valueFactory.createURI(resource.stringValue() + LdpUtils.getExtension(type));
+            binaryStore.store(binaryResource, stream);
             return binaryResource.stringValue();
         } else {
-            log.debug("POST creates new LDP-SR, data provided as {}", rdfFormat.getName());
-            connection.add(container, LDP.contains, resource, ldpContext);
-
-            // FIXME: We are (are we?) allowed to filter out server-managed properties here
-            connection.add(stream, resource.stringValue(), rdfFormat, resource);
-
-            return resource.stringValue();
+        	connection.add(stream, resource.stringValue(), rdfFormat, resource);
+        	return resource.stringValue();
         }
+        
     }
 
     @Override
@@ -437,51 +485,68 @@ public class LdpServiceSPARQLImpl implements LdpService {
 
     }
 
+    //Done
     @Override
     public boolean deleteResource(RepositoryConnection connection, String resource) throws RepositoryException {
         return deleteResource(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public boolean deleteResource(RepositoryConnection connection, URI resource) throws RepositoryException {
         final Literal now = connection.getValueFactory().createLiteral(new Date());
+        
+        String updateString = " DELETE { GRAPH <" + LDP.NAMESPACE + "> { ?s <" + DCTERMS.modified.stringValue() + "> ?date . ?s <" + LDP.contains.stringValue() + "> <" + resource.stringValue() + "> } } "
+        		+ " INSERT { GRAPH <" + LDP.NAMESPACE + "> { ?s <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " } } "
+        		+ " WHERE { GRAPH <" + LDP.NAMESPACE + "> { ?s <" + LDP.contains.stringValue() + "> <" + resource.stringValue() + "> } }";
+        
+		try {
+			Update update = connection.prepareUpdate(QueryLanguage.SPARQL, updateString);
+			update.execute(); 
+			connection.commit();
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (UpdateExecutionException e) {
+			throw new RepositoryException(e);
+		}
+        
 
-        // Delete corresponding containment and membership triples (Sec. 5.2.5.1)
-        RepositoryResult<Statement> stmts = connection.getStatements(null, LDP.contains, resource, false, ldpContext);
-        try {
-            while (stmts.hasNext()) {
-                Statement st = stmts.next();
-                connection.remove(st.getSubject(), DCTERMS.modified, null);
-                connection.add(st.getSubject(), DCTERMS.modified, now);
-                connection.remove(st);
-            }
-        } finally {
-            stmts.close();
-        }
-        // Sec. 5.2.5.2: When an LDPR identified by the object of a containment triple is deleted, and the LDPC server created an associated LDP-RS, the LDPC server must also remove the associated LDP-RS it created.
-        RepositoryResult<Statement> associated = connection.getStatements(resource, DCTERMS.isFormatOf, null, false, ldpContext);
-        try {
-            while (associated.hasNext()) {
-                Statement st = associated.next();
-                if (st.getObject() instanceof Resource) {
-                    connection.remove((Resource) st.getObject(), null, null);
-                }
-                connection.remove(st);
-            }
-        } finally {
-            associated.close();
-        }
+		updateString = " DELETE { GRAPH <" + LDP.NAMESPACE + "> { ?o1 ?p ?o2 . <" + resource.stringValue() + "> <" + DCTERMS.isFormatOf.stringValue() + "> ?o1 } } "
+        		+ " WHERE { GRAPH <" + LDP.NAMESPACE + "> { <" + resource.stringValue() + "> <" + DCTERMS.isFormatOf.stringValue() + "> ?o1 . OPTIONAL { ?o1 ?p ?o2 } } }";
+		try {
+			Update update = connection.prepareUpdate(QueryLanguage.SPARQL, updateString);
+			update.execute(); 
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (UpdateExecutionException e) {
+			throw new RepositoryException(e);
+		}
 
         // Delete LDP-NR (binary)
         binaryStore.delete(resource);
 
         // Delete the resource meta
-        connection.remove(resource, null, null, ldpContext);
+        updateString = " DELETE WHERE { GRAPH <" + LDP.NAMESPACE + "> { <" + resource.stringValue() + "> ?p ?o } } ";
+        
+		try {
+			Update update = connection.prepareUpdate(QueryLanguage.SPARQL, updateString);
+			update.execute(); 
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (UpdateExecutionException e) {
+			throw new RepositoryException(e);
+		}
 
-        // Delete the resource data
-        connection.clear(resource);
+		updateString = " CLEAR GRAPH <" + resource.stringValue() + "> ";
 
-        // FIXME: Sec. 5.2.3.11: LDP servers that allow member creation via POST should not re-use URIs.
+		try {
+			Update update = connection.prepareUpdate(QueryLanguage.SPARQL, updateString);
+			update.execute(); 
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (UpdateExecutionException e) {
+			throw new RepositoryException(e);
+		}
 
         return true;
     }
@@ -531,4 +596,23 @@ public class LdpServiceSPARQLImpl implements LdpService {
         // Default Interaction Model is LDPC
         return InteractionModel.LDPC;
     }
+
+	@Override
+	public String updateResource(RepositoryConnection con, String resource,
+			InputStream stream, String type) throws RepositoryException,
+			IncompatibleResourceTypeException, RDFParseException, IOException,
+			InvalidModificationException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public String updateResource(RepositoryConnection con, URI resource,
+			InputStream stream, String type) throws RepositoryException,
+			IncompatibleResourceTypeException, IOException, RDFParseException,
+			InvalidModificationException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+	
 }

@@ -7,6 +7,7 @@
       xmlns:dcterms="http://purl.org/dc/terms/"
       xmlns:ical="http://www.w3.org/2002/12/cal/ical#"
       xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#" 
+      xmlns:ldp="http://www.w3.org/ns/ldp#"
       xml:base="http://www.example.com/ldp" >
       
   <foaf:PersonalProfileDocument rdf:about="">
@@ -15,11 +16,21 @@
   </foaf:PersonalProfileDocument>
 
   <foaf:Person rdf:ID="me">
+    <rdf:type rdf:resource="http://www.w3.org/ns/ldp#TestMeClass"/>
+    <rdf:type rdf:resource="http://www.w3.org/ns/ldp#RDFSource"/>
     <foaf:name xml:lang="en">Henry Rzepa</foaf:name>
     <foaf:givenname>Henry</foaf:givenname>
     <foaf:family_name>Rzepa</foaf:family_name>
     <foaf:title>Professor</foaf:title>
-    <foaf:img rdf:resource="http://www.ch.ic.ac.uk/rzepa/rzepa_2005.jpg"/>
+    <foaf:img>
+      <ldp:NonRDFSource rdf:about="http://www.ch.ic.ac.uk/rzepa/rzepa_2005.jpg">
+        <dcterms:isFormatOf>
+          <ldp:RDFSource rdf:about="http://www.example.com/ldp#myImage">
+            <dcterms:hasFormat rdf:resource="http://www.ch.ic.ac.uk/rzepa/rzepa_2005.jpg"/>
+          </ldp:RDFSource>
+        </dcterms:isFormatOf>
+      </ldp:NonRDFSource>
+    </foaf:img>
     <foaf:nick>rzepa</foaf:nick>
     <foaf:based_near geo:lat="51.497798" geo:long="-0.176728" />
     <rdfs:seeAlso rdf:resource="http://maps.google.co.uk/maps?ll=51.496902,-0.176135"/>
@@ -58,11 +69,7 @@
 
   <!-- FRIENDS -->
 
-  <foaf:Person rdf:ID="EgonWillighagen">
-    <foaf:name>Egon Willighagen</foaf:name>
-    <rdfs:seeAlso rdf:resource="http://blueobelisk.sourceforge.net/people/egonw/foaf.xml"/>
-    <foaf:knows rdf:resource="#me"/>
-  </foaf:Person>
+
 
   <!-- GROUPS -->
 
