@@ -25,6 +25,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -70,6 +71,8 @@ import org.openrdf.query.UpdateExecutionException;
 import org.openrdf.repository.RepositoryConnection;
 import org.openrdf.repository.RepositoryException;
 import org.openrdf.repository.RepositoryResult;
+import org.openrdf.repository.event.base.InterceptingRepositoryConnectionWrapper;
+import org.openrdf.repository.event.base.RepositoryConnectionInterceptorAdapter;
 import org.openrdf.rio.RDFFormat;
 import org.openrdf.rio.RDFHandlerException;
 import org.openrdf.rio.RDFParseException;
@@ -597,22 +600,131 @@ public class LdpServiceSPARQLImpl implements LdpService {
         return InteractionModel.LDPC;
     }
 
+    //Done
 	@Override
 	public String updateResource(RepositoryConnection con, String resource,
 			InputStream stream, String type) throws RepositoryException,
 			IncompatibleResourceTypeException, RDFParseException, IOException,
 			InvalidModificationException {
-		// TODO Auto-generated method stub
-		return null;
+		return updateResource(con, buildURI(resource), stream, type);
 	}
 
+	//Done
 	@Override
-	public String updateResource(RepositoryConnection con, URI resource,
+	public String updateResource(final RepositoryConnection con, final URI resource,
 			InputStream stream, String type) throws RepositoryException,
 			IncompatibleResourceTypeException, IOException, RDFParseException,
 			InvalidModificationException {
-		// TODO Auto-generated method stub
-		return null;
+        final ValueFactory valueFactory = con.getValueFactory();
+        final Literal now = valueFactory.createLiteral(new Date());
+
+        String updateString = "WITH <" + LDP.NAMESPACE + "> "
+        		+ " DELETE { <" + resource.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }"
+        		+ " INSERT { <" + resource.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . } "
+        		+ " WHERE { <" + resource.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }";
+        
+		try {
+			Update update = con.prepareUpdate(QueryLanguage.SPARQL, updateString);
+			update.execute(); 
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (UpdateExecutionException e) {
+			throw new RepositoryException(e);
+		}
+
+
+        final RDFFormat rdfFormat = Rio.getParserFormatForMIMEType(type);
+        // Check submitted format vs. real resource type (RDF-S vs. Non-RDF)
+        if (rdfFormat == null && isNonRdfSourceResource(con, resource)) {
+            log.debug("Updating <{}> as LDP-NR (binary) - {}", resource, type);
+
+            final Literal format = valueFactory.createLiteral(type);
+
+            updateString = "WITH <" + LDP.NAMESPACE + "> "
+            		+ " DELETE { <" + resource.stringValue() + "> <" + DCTERMS.format.stringValue() + "> ?format}"
+            		+ " INSERT { <" + resource.stringValue() + "> <" + DCTERMS.format.stringValue() + "> " + format.toString() + " . } "
+            		+ " WHERE { <" + resource.stringValue() + "> <" + DCTERMS.format.stringValue() + "> ?format }";
+            
+    		try {
+    			Update update = con.prepareUpdate(QueryLanguage.SPARQL, updateString);
+    			update.execute(); 
+    		} catch (MalformedQueryException e) {
+    			throw new RepositoryException(e);
+    		} catch (UpdateExecutionException e) {
+    			throw new RepositoryException(e);
+    		}
+
+            final URI ldp_rs = getRdfSourceForNonRdfSource(con, resource);
+            if (ldp_rs != null) {
+            	
+                updateString = "WITH <" + LDP.NAMESPACE + "> "
+                		+ " DELETE { <" + ldp_rs.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }"
+                		+ " INSERT { <" + ldp_rs.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . } "
+                		+ " WHERE { <" + ldp_rs.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }";
+                
+        		try {
+        			Update update = con.prepareUpdate(QueryLanguage.SPARQL, updateString);
+        			update.execute(); 
+        		} catch (MalformedQueryException e) {
+        			throw new RepositoryException(e);
+        		} catch (UpdateExecutionException e) {
+        			throw new RepositoryException(e);
+        		}
+        		
+                log.trace("Updated Meta-Data of LDP-RS <{}> for LDP-NR <{}>; Modified: {}", ldp_rs, resource, now);
+            } else {
+                log.debug("LDP-RS for LDP-NR <{}> not found", resource);
+            }
+            log.trace("Meta-Data for <{}> updated; Format: {}, Modified: {}", resource, format, now);
+
+            binaryStore.store(resource, stream);//TODO: exceptions control
+
+            log.trace("LDP-NR <{}> updated", resource);
+            return resource.stringValue();
+        } else if (rdfFormat != null && isRdfSourceResource(con, resource)) {
+            log.debug("Updating <{}> as LDP-RS - {}", resource, rdfFormat.getDefaultMIMEType());
+
+    		updateString = " CLEAR GRAPH <" + resource.stringValue() + "> ";
+
+    		try {
+    			Update update = con.prepareUpdate(QueryLanguage.SPARQL, updateString);
+    			update.execute(); 
+    		} catch (MalformedQueryException e) {
+    			throw new RepositoryException(e);
+    		} catch (UpdateExecutionException e) {
+    			throw new RepositoryException(e);
+    		}
+    		
+            final InterceptingRepositoryConnectionWrapper filtered = new InterceptingRepositoryConnectionWrapper(con.getRepository(), con);
+            final Set<URI> deniedProperties = new HashSet<>();
+            filtered.addRepositoryConnectionInterceptor(new RepositoryConnectionInterceptorAdapter() {
+                @Override
+                public boolean add(RepositoryConnection conn, Resource subject, URI predicate, Value object, Resource... contexts) {
+                    if (resource.equals(subject) && SERVER_MANAGED_PROPERTIES.contains(predicate)) {
+                        deniedProperties.add(predicate);
+                        return true;
+                    }
+                    return false;
+                }
+            });
+
+            filtered.add(stream, resource.stringValue(), rdfFormat, resource);
+
+            if (!deniedProperties.isEmpty()) {
+                final URI prop = deniedProperties.iterator().next();
+                log.debug("Invalid property modification in update: <{}> is a server controlled property", prop);
+                throw new InvalidModificationException(String.format("Must not update <%s> using PUT", prop));
+            }
+            log.trace("LDP-RS <{}> updated", resource);
+            return resource.stringValue();
+        } else if (rdfFormat == null) {
+            final String mimeType = getMimeType(con, resource);
+            log.debug("Incompatible replacement: Can't replace {} with {}", mimeType, type);
+            throw new IncompatibleResourceTypeException(mimeType, type);
+        } else {
+            log.debug("Incompatible replacement: Can't replace a LDP-RS with {}", type);
+            throw new IncompatibleResourceTypeException("RDF", type);
+        }
 	}
 	
 }
