@@ -1,0 +1,20 @@
+  <rdf:RDF
+      xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+      xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+      xmlns:foaf="http://xmlns.com/foaf/0.1/"
+      xmlns:dc="http://purl.org/dc/elements/1.1/"
+      xmlns:bibo="http://purl.org/ontology/bibo/"
+      xmlns:dcterms="http://purl.org/dc/terms/"
+      xmlns:ical="http://www.w3.org/2002/12/cal/ical#"
+      xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#" 
+      xmlns:ldp="http://www.w3.org/ns/ldp#"
+      xml:base="http://www.example.com/ldp" >
+  
+  
+  <foaf:Person rdf:ID="EgonWillighagen">
+    <foaf:name>Egon Willighagen Updated</foaf:name>
+    <rdfs:seeAlso rdf:resource="http://blueobelisk.sourceforge.net/people/egonw_updated/foaf.xml"/>
+  </foaf:Person>
+  
+  
+</rdf:RDF>
