@@ -17,6 +17,7 @@
  */
 package org.apache.marmotta.platform.ldp.services;
 
+import info.aduna.iteration.Iteration;
 import info.aduna.iteration.Iterations;
 import info.aduna.iteration.UnionIteration;
 
@@ -57,7 +58,6 @@ import org.openrdf.model.URI;
 import org.openrdf.model.Value;
 import org.openrdf.model.ValueFactory;
 import org.openrdf.model.impl.ValueFactoryImpl;
-import org.openrdf.model.vocabulary.RDF;
 import org.openrdf.query.BooleanQuery;
 import org.openrdf.query.GraphQuery;
 import org.openrdf.query.GraphQueryResult;
@@ -70,13 +70,11 @@ import org.openrdf.query.Update;
 import org.openrdf.query.UpdateExecutionException;
 import org.openrdf.repository.RepositoryConnection;
 import org.openrdf.repository.RepositoryException;
-import org.openrdf.repository.RepositoryResult;
 import org.openrdf.repository.event.base.InterceptingRepositoryConnectionWrapper;
 import org.openrdf.repository.event.base.RepositoryConnectionInterceptorAdapter;
 import org.openrdf.rio.RDFFormat;
 import org.openrdf.rio.RDFHandlerException;
 import org.openrdf.rio.RDFParseException;
-import org.openrdf.rio.RDFParserRegistry;
 import org.openrdf.rio.RDFWriter;
 import org.openrdf.rio.Rio;
 import org.slf4j.Logger;
@@ -257,20 +255,46 @@ public class LdpServiceSPARQLImpl implements LdpService {
 		}
     }
 
+    //Done
     @Override
     public void exportResource(RepositoryConnection connection, String resource, OutputStream output, RDFFormat format) throws RepositoryException, RDFHandlerException {
         exportResource(connection, buildURI(resource), output, format);
     }
 
+    //Done
     @Override
     public void exportResource(RepositoryConnection connection, URI resource, OutputStream output, RDFFormat format) throws RepositoryException, RDFHandlerException {
-        // TODO: this should be a little more sophisticated...
+    	String queryString1 = "CONSTRUCT   { <"+ resource.stringValue()+ "> ?p ?o . } FROM <"+ LDP.NAMESPACE +"> WHERE  { <"+ resource.stringValue()+ "> ?p ?o . } ";
+    	Iteration<Statement, RepositoryException> result1 = null;
+    	
+    	String queryString2 = "CONSTRUCT   { ?s ?p ?o . } FROM <"+ resource.stringValue() +"> WHERE  { ?s ?p ?o . } ";
+    	Iteration<Statement, RepositoryException> result2 = null;
+    	
+    	try {
+			GraphQuery query1= connection.prepareGraphQuery(QueryLanguage.SPARQL, queryString1);
+			GraphQueryResult r1 = query1.evaluate();
+			result1 = new  IterationExceptionAdpter<Statement>(r1);
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (QueryEvaluationException e){
+			throw new RepositoryException(e);
+		}
+    	
+    	try {
+			GraphQuery query2= connection.prepareGraphQuery(QueryLanguage.SPARQL, queryString2);
+			GraphQueryResult r2 = query2.evaluate();
+			result2 = new  IterationExceptionAdpter<Statement>(r2);
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (QueryEvaluationException e){
+			throw new RepositoryException(e);
+		}
+
+    	// TODO: this should be a little more sophisticated...
         // TODO: non-membership triples flag / Prefer-header
         RDFWriter writer = Rio.createWriter(format, output);
-        UnionIteration<Statement, RepositoryException> union = new UnionIteration<>(
-                connection.getStatements(resource, null, null, false, ldpContext),
-                connection.getStatements(null, null, null, false, resource)
-        );
+    	UnionIteration<Statement, RepositoryException> union = new UnionIteration<>(result1, result2);
+
         try {
             LdpUtils.exportIteration(writer, resource, union);
         } finally {
@@ -278,6 +302,7 @@ public class LdpServiceSPARQLImpl implements LdpService {
         }
     }
 
+    //Ignored
     @Override
     public void exportBinaryResource(RepositoryConnection connection, String resource, OutputStream out) throws RepositoryException, IOException {
         //TODO: check (resource, dct:format, type)
@@ -288,28 +313,39 @@ public class LdpServiceSPARQLImpl implements LdpService {
                 throw new IOException("Cannot read resource " + resource);
             }
         }
-
     }
 
+    //Ignored
     @Override
     public void exportBinaryResource(RepositoryConnection connection, URI resource, OutputStream out) throws RepositoryException, IOException {
         exportBinaryResource(connection, resource.stringValue(), out);
     }
 
+    //Done
     @Override
     public String getMimeType(RepositoryConnection connection, String resource) throws RepositoryException {
         return getMimeType(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public String getMimeType(RepositoryConnection connection, URI uri) throws RepositoryException {
-        final RepositoryResult<Statement> formats = connection.getStatements(uri, DCTERMS.format, null, false, ldpContext);
-        try {
-            if (formats.hasNext()) return formats.next().getObject().stringValue();
-        } finally {
-            formats.close();
-        }
-        return null;
+    	String queryString = "SELECT ?o FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> <" + DCTERMS.format.stringValue() + "> ?o . }";
+    	
+    	try {
+			TupleQuery query= connection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
+			TupleQueryResult result = query.evaluate();
+			if (! result.hasNext()){
+				return null;
+			}else {
+				return result.next().getValue("o").stringValue();
+			}
+		} catch (MalformedQueryException e) {
+			return null;
+		} catch (QueryEvaluationException e){
+			return null;
+		}
+    
     }
     
     //Done
@@ -394,11 +430,13 @@ public class LdpServiceSPARQLImpl implements LdpService {
         
     }
 
+    //Done
     @Override
     public EntityTag generateETag(RepositoryConnection connection, String resource) throws RepositoryException {
         return generateETag(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public EntityTag generateETag(RepositoryConnection connection, URI uri) throws RepositoryException {
         if (isNonRdfSourceResource(connection, uri)) {
@@ -409,12 +447,16 @@ public class LdpServiceSPARQLImpl implements LdpService {
                 return null;
             }
         } else {
-            final RepositoryResult<Statement> stmts = connection.getStatements(uri, DCTERMS.modified, null, true, ldpContext);
-            try {
+            String queryString = "SELECT ?o FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> <" + DCTERMS.modified.stringValue() + "> ?o . }";
+            
+        	try {
+    			TupleQuery query= connection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
+    			TupleQueryResult result = query.evaluate();
+
                 // TODO: ETag is the last-modified date (explicitly managed) thus only weak.
                 Date latest = null;
-                while (stmts.hasNext()) {
-                    Value o = stmts.next().getObject();
+                while (result.hasNext()) {
+                    Value o = result.next().getValue("o");
                     if (o instanceof Literal) {
                         Date d = ((Literal)o).calendarValue().toGregorianCalendar().getTime();
                         if (latest == null || d.after(latest)) {
@@ -427,24 +469,32 @@ public class LdpServiceSPARQLImpl implements LdpService {
                 } else {
                     return null;
                 }
-            } finally {
-                stmts.close();
-            }
+    		} catch (MalformedQueryException e) {
+    			return null;
+    		} catch (QueryEvaluationException e){
+    			return null;
+    		}
+        	
         }
     }
 
+    //Done
     @Override
     public Date getLastModified(RepositoryConnection connection, String resource) throws RepositoryException {
         return getLastModified(connection, buildURI(resource));
     }
 
+    //Done
     @Override
     public Date getLastModified(RepositoryConnection connection, URI uri) throws RepositoryException {
-        final RepositoryResult<Statement> stmts = connection.getStatements(uri, DCTERMS.modified, null, true, ldpContext);
-        try {
+    	String queryString = "SELECT ?o FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> <" + DCTERMS.modified.stringValue() + "> ?o . }";
+    	
+    	try {
+			TupleQuery query= connection.prepareTupleQuery(QueryLanguage.SPARQL, queryString);
+			TupleQueryResult result = query.evaluate();
             Date latest = null;
-            while (stmts.hasNext()) {
-                Value o = stmts.next().getObject();
+            while (result.hasNext()) {
+                Value o = result.next().getValue("o");
                 if (o instanceof Literal) {
                     Date d = ((Literal)o).calendarValue().toGregorianCalendar().getTime();
                     if (latest == null || d.after(latest)) {
@@ -453,16 +503,20 @@ public class LdpServiceSPARQLImpl implements LdpService {
                 }
             }
             return latest;
-        } finally {
-            stmts.close();
-        }
+		} catch (MalformedQueryException e) {
+			return null;
+		} catch (QueryEvaluationException e){
+			return null;
+		}
     }
 
+    //Not tested
     @Override
     public void patchResource(RepositoryConnection connection, String resource, InputStream patchData, boolean strict) throws RepositoryException, ParseException, InvalidModificationException, InvalidPatchDocumentException {
         patchResource(connection, buildURI(resource), patchData, strict);
     }
 
+    //Not tested
     @Override
     public void patchResource(RepositoryConnection connection, URI uri, InputStream patchData, boolean strict) throws RepositoryException, ParseException, InvalidModificationException, InvalidPatchDocumentException {
         final Literal now = connection.getValueFactory().createLiteral(new Date());
@@ -482,10 +536,21 @@ public class LdpServiceSPARQLImpl implements LdpService {
 
         RdfPatchUtil.applyPatch(connection, patch, uri);
 
-        log.trace("update resource meta");
-        connection.remove(uri, DCTERMS.modified, null, ldpContext);
-        connection.add(uri, DCTERMS.modified, now, ldpContext);
-
+        log.trace("update resource meta");        
+        
+        String updateString = "WITH <" + LDP.NAMESPACE + "> "
+        		+ " DELETE { <" + uri.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }"
+        		+ " INSERT { <" + uri.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . } "
+        		+ " WHERE { <" + uri.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }";
+        
+		try {
+			Update update = connection.prepareUpdate(QueryLanguage.SPARQL, updateString);
+			update.execute(); 
+		} catch (MalformedQueryException e) {
+			throw new RepositoryException(e);
+		} catch (UpdateExecutionException e) {
+			throw new RepositoryException(e);
+		}
     }
 
     //Done
@@ -554,6 +619,7 @@ public class LdpServiceSPARQLImpl implements LdpService {
         return true;
     }
 
+    //Ignored
     @Override
     public InteractionModel getInteractionModel(List<Link> linkHeaders) throws InvalidInteractionModelException {
         if (log.isTraceEnabled()) {
@@ -582,16 +648,41 @@ public class LdpServiceSPARQLImpl implements LdpService {
         return InteractionModel.LDPC;
     }
 
+    
+    //Done
     @Override
     public InteractionModel getInteractionModel(RepositoryConnection connection, String resource) throws RepositoryException {
         return getInteractionModel(connection, buildURI(resource));
     }
-
+    
+    //Done
     @Override
     public InteractionModel getInteractionModel(RepositoryConnection connection, URI uri) throws RepositoryException {
-        if (connection.hasStatement(uri, ldpInteractionModelProperty, InteractionModel.LDPC.getUri(), true, ldpContext)) {
+    	String queryString1 = "ASK FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> <" + ldpInteractionModelProperty.stringValue() + "> <" + InteractionModel.LDPC.getUri().stringValue() + "> . }";
+    	boolean isLDPC = false;
+    	try {
+			BooleanQuery query1= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString1);
+			isLDPC = query1.evaluate();
+		} catch (MalformedQueryException e) {
+			isLDPC = false;
+		} catch (QueryEvaluationException e){
+			isLDPC = false;
+		}
+    	
+    	String queryString2 = "ASK FROM <"+ LDP.NAMESPACE +"> WHERE { <"+ uri.stringValue()+ "> <" + ldpInteractionModelProperty.stringValue() + "> <" + InteractionModel.LDPR.getUri().stringValue() + "> . }";
+    	boolean isLDPR = false;
+    	try {
+			BooleanQuery query2= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString2);
+			isLDPR = query2.evaluate();
+		} catch (MalformedQueryException e) {
+			isLDPR = false;
+		} catch (QueryEvaluationException e){
+			isLDPR = false;
+		}
+    	    	
+    	if (isLDPC) {
             return InteractionModel.LDPC;
-        } else if (connection.hasStatement(uri, ldpInteractionModelProperty, InteractionModel.LDPR.getUri(), true, ldpContext)) {
+        } else if (isLDPR) {
             return InteractionModel.LDPR;
         }
 
@@ -726,5 +817,43 @@ public class LdpServiceSPARQLImpl implements LdpService {
             throw new IncompatibleResourceTypeException("RDF", type);
         }
 	}
+}
+
+class IterationExceptionAdpter<T> implements Iteration<T,RepositoryException>{
+
+	private final Iteration<T, QueryEvaluationException> it;
+	
+	IterationExceptionAdpter(Iteration<T, QueryEvaluationException> it){
+		this.it = it;
+	}
+	
+	@Override
+	public boolean hasNext() throws RepositoryException {
+		try {
+			return it.hasNext();
+		} catch(QueryEvaluationException e){
+			throw new RepositoryException(e);
+		}
+	}
+
+	@Override
+	public T next() throws RepositoryException {
+		try {
+			return it.next();
+		} catch(QueryEvaluationException e){
+			throw new RepositoryException(e);
+		}
+	}
+
+	@Override
+	public void remove() throws RepositoryException {
+		try {
+			it.remove();
+		} catch(QueryEvaluationException e){
+			throw new RepositoryException(e);
+		}
+	}
 	
 }
+
+

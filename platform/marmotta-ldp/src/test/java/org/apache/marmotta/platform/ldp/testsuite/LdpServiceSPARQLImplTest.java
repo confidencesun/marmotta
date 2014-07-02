@@ -17,14 +17,20 @@
 
 package org.apache.marmotta.platform.ldp.testsuite;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Date;
 import java.util.List;
+
+import javax.ws.rs.core.EntityTag;
 
 import org.apache.marmotta.commons.vocabulary.DCTERMS;
 import org.apache.marmotta.commons.vocabulary.FOAF;
 import org.apache.marmotta.commons.vocabulary.LDP;
 import org.apache.marmotta.platform.core.test.base.EmbeddedMarmotta;
+import org.apache.marmotta.platform.ldp.api.LdpBinaryStoreService;
 import org.apache.marmotta.platform.ldp.api.LdpService;
 import org.apache.marmotta.platform.ldp.api.LdpService.InteractionModel;
 import org.apache.marmotta.platform.ldp.exceptions.IncompatibleResourceTypeException;
@@ -50,6 +56,7 @@ import org.openrdf.repository.RepositoryException;
 import org.openrdf.repository.RepositoryResult;
 import org.openrdf.repository.sail.SailRepository;
 import org.openrdf.rio.RDFFormat;
+import org.openrdf.rio.RDFHandlerException;
 import org.openrdf.rio.RDFParseException;
 import org.openrdf.sail.memory.MemoryStore;
 import org.slf4j.Logger;
@@ -70,6 +77,7 @@ public class LdpServiceSPARQLImplTest {
 	
     private static EmbeddedMarmotta marmotta;
     private static LdpService lpdService;
+    private static LdpBinaryStoreService lpdBinaryService;
     private static Repository repo;
     
     private static Logger log = LoggerFactory.getLogger(LdpServiceSPARQLImplTest.class);
@@ -81,6 +89,7 @@ public class LdpServiceSPARQLImplTest {
     public static final void before() throws RepositoryException, RDFParseException, IOException {
     	 marmotta = new EmbeddedMarmotta();
     	 lpdService = marmotta.getService(LdpService.class);
+    	 lpdBinaryService = marmotta.getService(LdpBinaryStoreService.class);
     	 String path = ROOT_PATH + FOAF_EXAMPLE + ".rdf";
          repo = loadData(path, RDFFormat.RDFXML);
          Assume.assumeNotNull(repo);
@@ -789,6 +798,7 @@ public class LdpServiceSPARQLImplTest {
     	}
     }
     
+    @Ignore
     @Test
     public void testUpdateResource3() throws RepositoryException, RDFParseException, IOException{
     	RepositoryConnection conn = repo.getConnection();
@@ -832,7 +842,7 @@ public class LdpServiceSPARQLImplTest {
         }
     }
     
-    
+    @Ignore
     @Test
     public void testUpdateResource4() throws RepositoryException, RDFParseException, IOException{
     	RepositoryConnection conn = repo.getConnection();
@@ -908,6 +918,441 @@ public class LdpServiceSPARQLImplTest {
             }
         }
     }
+    
+    @Ignore
+    @Test
+    public void testExportResource() throws RepositoryException, RDFHandlerException, RDFParseException, IOException{
+    	RepositoryConnection conn = repo.getConnection();
+    	InputStream is=null;
+    	String container = "http://www.example.com/ldp#friendsContainer";
+    	String resource = "http://www.example.com/ldp#EgonWillighagen";
+    	String resourceExported = resource + "_Exported";
+    	String type = "application/rdf+xml";
+    	try {
+            conn.begin();
+            String imagePath = ROOT_PATH + FRIEND_EXAMPLE + ".rdf";
+            is = LdpServiceSPARQLImplTest.class.getResourceAsStream(imagePath);
+            
+            //Assert.assertEquals(802, is.available());
+            
+            String uri = lpdService.addResource(conn, container, resource , InteractionModel.LDPR, type, is);
+            Assert.assertEquals(resource, uri);
+    	} finally {
+            conn.commit();
+            conn.close();
+            if (is != null){
+            	is.close();
+            }
+        }
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), ldpInteractionModelProperty, InteractionModel.LDPR.getUri(), true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.created, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.modified, null, true, ldpContext) );
+            
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), LDP.contains, buildURI (resource), true, ldpContext) );
+            
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), RDF.TYPE, FOAF.Person, true, buildURI (resource)) ) ;
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.name, ValueFactoryImpl.getInstance().createLiteral("Egon Willighagen"), true, buildURI (resource)) );
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), RDFS.SEEALSO, buildURI("http://blueobelisk.sourceforge.net/people/egonw/foaf.xml"), true, buildURI (resource)) );
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.knows, buildURI("http://www.example.com/ldp#me"), true, buildURI (resource)) );
+
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    	
+    	URI contextExported = buildURI(resourceExported);
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            RDFFormat format =  RDFFormat.RDFXML;
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            lpdService.exportResource(conn, resource, out, format);
+            
+            conn.add( new ByteArrayInputStream(out.toByteArray()), BASE, format, contextExported );
+
+    	}
+    	finally {
+            conn.commit();
+            conn.close();
+        }
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            
+            Assert.assertFalse ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, contextExported ) );
+            Assert.assertFalse ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, contextExported ) );
+            Assert.assertFalse ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, contextExported) );
+            Assert.assertFalse ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true,contextExported ) );
+            Assert.assertFalse ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, contextExported) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.Resource, true, contextExported ) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.RDFSource, true, contextExported) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), ldpInteractionModelProperty, InteractionModel.LDPR.getUri(), true, contextExported) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.created, null, true, contextExported) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.modified, null, true, contextExported) );
+            
+            Assert.assertFalse ( conn.hasStatement(buildURI (container), LDP.contains, buildURI (resource), true, contextExported) );
+            
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), RDF.TYPE, FOAF.Person, true, contextExported) ) ;
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.name, ValueFactoryImpl.getInstance().createLiteral("Egon Willighagen"), true, contextExported) );
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), RDFS.SEEALSO, buildURI("http://blueobelisk.sourceforge.net/people/egonw/foaf.xml"), true, contextExported) );
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.knows, buildURI("http://www.example.com/ldp#me"), true, contextExported) );
+    	}
+    	finally {
+            conn.commit();
+            conn.close();
+        }
+    }
+    
+    @Ignore
+    @Test
+    public void testGetMimeType() throws RepositoryException, RDFParseException, IOException{
+    	RepositoryConnection conn = repo.getConnection();
+    	InputStream is=null;
+    	String container = "http://www.example.com/ldp#friendsContainer";
+    	String resource = "http://www.example.com/ldp#myImage";
+    	String type = "image/png";
+        final Literal format = ValueFactoryImpl.getInstance().createLiteral(type);
+        final URI binaryResource = ValueFactoryImpl.getInstance().createURI(resource + LdpUtils.getExtension(type));
+        final Value resourceModified;
+        
+    	try {
+            conn.begin();
+            String imagePath = ROOT_PATH + IMAGE_EXAMPLE + ".png";
+            is = LdpServiceSPARQLImplTest.class.getResourceAsStream(imagePath);
+            
+            //Assert.assertEquals(802, is.available());
+            
+            String uri = lpdService.addResource(conn, container, resource , InteractionModel.LDPR, type , is);
+            Assert.assertEquals(binaryResource.stringValue(), uri);
+    	} finally {
+            conn.commit();
+            conn.close();
+            if (is != null){
+            	is.close();
+            }
+        }
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), ldpInteractionModelProperty, InteractionModel.LDPR.getUri(), true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.created, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.modified, null, true, ldpContext) );
+
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), LDP.contains, binaryResource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.created, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.modified, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, RDF.TYPE, LDP.NonRDFSource, true, ldpContext) );
+
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.format, format, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.isFormatOf, buildURI (resource), true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.hasFormat, binaryResource, true, ldpContext) );
+
+        	RepositoryResult<Statement> stmts = conn.getStatements(buildURI (resource), DCTERMS.modified, null, true, ldpContext);
+        	resourceModified = stmts.next().getObject(); 
+        	stmts = conn.getStatements( binaryResource , DCTERMS.modified, null, true, ldpContext);
+        	Value binaryResourceModified = stmts.next().getObject(); 
+        	Assert.assertEquals(resourceModified, binaryResourceModified);
+    	
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            Assert.assertEquals(format.stringValue(),  lpdService.getMimeType(conn, binaryResource) );
+            
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}   
+    }
+    
+    @Ignore
+    @Test
+    public void testGenerateETag1() throws RepositoryException, RDFParseException, IOException {
+    	RepositoryConnection conn = repo.getConnection();
+    	InputStream is=null;
+    	String container = "http://www.example.com/ldp#friendsContainer";
+    	String resource = "http://www.example.com/ldp#myImage";
+    	String type = "image/png";
+        final Literal format = ValueFactoryImpl.getInstance().createLiteral(type);
+        final URI binaryResource = ValueFactoryImpl.getInstance().createURI(resource + LdpUtils.getExtension(type));
+        final Value resourceModified;
+        
+    	try {
+            conn.begin();
+            String imagePath = ROOT_PATH + IMAGE_EXAMPLE + ".png";
+            is = LdpServiceSPARQLImplTest.class.getResourceAsStream(imagePath);
+            
+            //Assert.assertEquals(802, is.available());
+            
+            String uri = lpdService.addResource(conn, container, resource , InteractionModel.LDPR, type , is);
+            Assert.assertEquals(binaryResource.stringValue(), uri);
+    	} finally {
+            conn.commit();
+            conn.close();
+            if (is != null){
+            	is.close();
+            }
+        }
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), ldpInteractionModelProperty, InteractionModel.LDPR.getUri(), true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.created, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.modified, null, true, ldpContext) );
+
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), LDP.contains, binaryResource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.created, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.modified, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, RDF.TYPE, LDP.NonRDFSource, true, ldpContext) );
+
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.format, format, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, DCTERMS.isFormatOf, buildURI (resource), true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.hasFormat, binaryResource, true, ldpContext) );
+
+        	RepositoryResult<Statement> stmts = conn.getStatements(buildURI (resource), DCTERMS.modified, null, true, ldpContext);
+        	resourceModified = stmts.next().getObject(); 
+        	stmts = conn.getStatements( binaryResource , DCTERMS.modified, null, true, ldpContext);
+        	Value binaryResourceModified = stmts.next().getObject(); 
+        	Assert.assertEquals(resourceModified, binaryResourceModified);
+    	
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+
+    	conn = repo.getConnection();
+        try {
+            conn.begin();
+            EntityTag etag = lpdService.generateETag(conn, binaryResource);
+            Assert.assertNotNull(etag);
+            Assert.assertFalse(etag.isWeak());
+            Assert.assertEquals(lpdBinaryService.getHash(binaryResource.stringValue()) ,etag.getValue());
+
+        } finally {
+            conn.commit();
+            conn.close();
+        }
+    }
+    
+    @Ignore
+    @Test
+    public void tesGetLastModified() throws RepositoryException, RDFParseException, IOException {
+    	RepositoryConnection conn = repo.getConnection();
+    	InputStream is=null;
+    	String container = "http://www.example.com/ldp#friendsContainer";
+    	String resource = "http://www.example.com/ldp#EgonWillighagen";
+    	String type = "application/rdf+xml";
+    	try {
+            conn.begin();
+            String imagePath = ROOT_PATH + FRIEND_EXAMPLE + ".rdf";
+            is = LdpServiceSPARQLImplTest.class.getResourceAsStream(imagePath);
+            
+            //Assert.assertEquals(802, is.available());
+            
+            String uri = lpdService.addResource(conn, container, resource , InteractionModel.LDPR, type, is);
+            Assert.assertEquals(resource, uri);
+    	} finally {
+            conn.commit();
+            conn.close();
+            if (is != null){
+            	is.close();
+            }
+        }
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), ldpInteractionModelProperty, InteractionModel.LDPR.getUri(), true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.created, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), DCTERMS.modified, null, true, ldpContext) );
+            
+            Assert.assertTrue ( conn.hasStatement(buildURI (container), LDP.contains, buildURI (resource), true, ldpContext) );
+            
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), RDF.TYPE, FOAF.Person, true, buildURI (resource)) ) ;
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.name, ValueFactoryImpl.getInstance().createLiteral("Egon Willighagen"), true, buildURI (resource)) );
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), RDFS.SEEALSO, buildURI("http://blueobelisk.sourceforge.net/people/egonw/foaf.xml"), true, buildURI (resource)) );
+            Assert.assertTrue ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.knows, buildURI("http://www.example.com/ldp#me"), true, buildURI (resource)) );
+            
+
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    	
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            Date lastModified =lpdService.getLastModified(conn, resource);
+            
+            Assert.assertNotNull(lastModified);
+            
+            RepositoryResult<Statement> stmts = conn.getStatements(buildURI (resource), DCTERMS.modified, null, true, ldpContext);
+            
+            Date latest = null;
+            try {
+                
+                while (stmts.hasNext()) {
+                    Value o = stmts.next().getObject();
+                    if (o instanceof Literal) {
+                        Date d = ((Literal)o).calendarValue().toGregorianCalendar().getTime();
+                        if (latest == null || d.after(latest)) {
+                            latest = d;
+                        }
+                    }
+                }
+            } finally {
+                stmts.close();
+            }
+               
+            Assert.assertEquals(latest, lastModified);
+            
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    	
+    }
+    
+    
+    @Test
+    public void tesGetInteractionModel() throws RepositoryException, RDFParseException, IOException {
+    	RepositoryConnection conn = repo.getConnection();
+    	InputStream is=null;
+    	String container = "http://www.example.com/ldp#friendsContainer";
+    	String resource = "http://www.example.com/ldp#EgonWillighagen";
+    	String type = "application/rdf+xml";
+    	try {
+            conn.begin();
+            String imagePath = ROOT_PATH + FRIEND_EXAMPLE + ".rdf";
+            is = LdpServiceSPARQLImplTest.class.getResourceAsStream(imagePath);
+            
+            //Assert.assertEquals(802, is.available());
+            
+            String uri = lpdService.addResource(conn, container, resource , InteractionModel.LDPR, type, is);
+            Assert.assertEquals(resource, uri);
+    	} finally {
+            conn.commit();
+            conn.close();
+            if (is != null){
+            	is.close();
+            }
+        }    	
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            InteractionModel model =lpdService.getInteractionModel(conn, resource);
+            
+            Assert.assertNotNull(model);
+            Assert.assertEquals( InteractionModel.LDPR, model);
+            
+            
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            lpdService.deleteResource(conn, resource);
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}    
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            InteractionModel model =lpdService.getInteractionModel(conn, resource);
+            
+            Assert.assertNotNull(model);
+            Assert.assertEquals( InteractionModel.LDPC, model);
+            
+            
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            String imagePath = ROOT_PATH + FRIEND_EXAMPLE + ".rdf";
+            is = LdpServiceSPARQLImplTest.class.getResourceAsStream(imagePath);
+            
+            //Assert.assertEquals(802, is.available());
+            
+            String uri = lpdService.addResource(conn, container, resource , InteractionModel.LDPC, type, is);
+            Assert.assertEquals(resource, uri);
+    	} finally {
+            conn.commit();
+            conn.close();
+            if (is != null){
+            	is.close();
+            }
+        }  
+    	
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            InteractionModel model =lpdService.getInteractionModel(conn, resource);
+            
+            Assert.assertNotNull(model);
+            Assert.assertEquals( InteractionModel.LDPC, model);
+            
+            
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    	
+    	
+    }
+    
     
     /**
      * Load test cases' data
