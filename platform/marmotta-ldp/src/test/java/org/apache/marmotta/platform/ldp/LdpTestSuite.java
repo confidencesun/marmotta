@@ -15,73 +15,61 @@
  * limitations under the License.
  */
 
-package org.apache.marmotta.platform.ldp.testsuite;
+package org.apache.marmotta.platform.ldp;
 
 import com.jayway.restassured.RestAssured;
-import org.apache.commons.io.IOUtils;
-import org.apache.marmotta.platform.core.exception.io.MarmottaImportException;
 import org.apache.marmotta.platform.core.test.base.JettyMarmotta;
 import org.apache.marmotta.platform.ldp.webservices.LdpWebService;
-import org.junit.*;
-import org.junit.runner.RunWith;
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.ws.rs.core.UriBuilder;
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * LDP Test Cases
+ * LDP Test Suite runner
  *
  * @author Sergio Fernández
- *
- * @see <a href="https://dvcs.w3.org/hg/ldpwg/raw-file/default/Test%20Cases/LDP%20Test%20Cases.html">LDP Test Cases</a>
  */
-@RunWith(LdpTestCasesRunner.class)
-public class LdpTestCases {
+public class LdpTestSuite {
 
-    public final static String FILES_PATH = "/testsuite/";
-
-    public final static String BASE = "http://www.w3.org/TR/ldp-test-cases/";
-
-    public final static String MANIFEST_CACHE = "LDP-Test-Cases-WD-live";
-
-    private static Logger log = LoggerFactory.getLogger(LdpTestCases.class);
+    private static Logger log = LoggerFactory.getLogger(LdpTestSuite.class);
 
     private static JettyMarmotta marmotta;
 
     private static String baseUrl;
 
-    private static String testResourceTTL;
-
     @BeforeClass
-    public static void setup() throws MarmottaImportException, URISyntaxException, IOException {
+    public static void setup() throws URISyntaxException, IOException {
         marmotta = new JettyMarmotta("/marmotta", LdpWebService.class);
         RestAssured.baseURI = "http://localhost";
         RestAssured.port = marmotta.getPort();
         RestAssured.basePath = marmotta.getContext();
         baseUrl = UriBuilder.fromUri("http://localhost").port(marmotta.getPort()).path(marmotta.getContext()).build().toString();
-
-        //initialization
-        testResourceTTL = IOUtils.toString(LdpTestCases.class.getResourceAsStream("/test.ttl"), "utf8");
-    }
-
-    @Before
-    public void before() {
-        log.warn("before");
-    }
-
-    @After
-    public void after() {
-        log.warn("after");
     }
 
     @AfterClass
     public static void shutdown() {
-        //marmotta.shutdown();
+        marmotta.shutdown();
         marmotta = null;
-        testResourceTTL = null;
+    }
+
+    @Test
+    public void testSuite() {
+        Map<String, String> options = new HashMap<>();
+        options.put("server", baseUrl);
+        options.put("basic", null);
+        options.put("non-rdf", null);
+        //org.w3.ldp.testsuite.LdpTestSuite testSuite = new org.w3.ldp.testsuite.LdpTestSuite(options);
+        //testSuite.run();
+        //Assert.assertEquals(0, testSuite.getStatus());
     }
 
 }
