@@ -35,6 +35,8 @@ import javax.enterprise.inject.Alternative;
 import javax.inject.Inject;
 import javax.ws.rs.core.EntityTag;
 import javax.ws.rs.core.Link;
+import javax.ws.rs.core.UriBuilder;
+import javax.ws.rs.core.UriInfo;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.marmotta.commons.vocabulary.DCTERMS;
@@ -51,6 +53,7 @@ import org.apache.marmotta.platform.ldp.patch.model.PatchLine;
 import org.apache.marmotta.platform.ldp.patch.parser.ParseException;
 import org.apache.marmotta.platform.ldp.patch.parser.RdfPatchParserImpl;
 import org.apache.marmotta.platform.ldp.util.LdpUtils;
+import org.apache.marmotta.platform.ldp.webservices.LdpWebService;
 import org.openrdf.model.Literal;
 import org.openrdf.model.Resource;
 import org.openrdf.model.Statement;
@@ -58,6 +61,8 @@ import org.openrdf.model.URI;
 import org.openrdf.model.Value;
 import org.openrdf.model.ValueFactory;
 import org.openrdf.model.impl.ValueFactoryImpl;
+import org.openrdf.model.vocabulary.RDF;
+import org.openrdf.model.vocabulary.RDFS;
 import org.openrdf.query.BooleanQuery;
 import org.openrdf.query.GraphQuery;
 import org.openrdf.query.GraphQueryResult;
@@ -102,6 +107,51 @@ public class LdpServiceSPARQLImpl implements LdpService {
     public LdpServiceSPARQLImpl() {
         ldpContext = ValueFactoryImpl.getInstance().createURI(LDP.NAMESPACE);
         ldpInteractionModelProperty = ValueFactoryImpl.getInstance().createURI(LDP.NAMESPACE, "interactionModel");
+    }
+    
+    //Done
+	@Override
+    public void init(RepositoryConnection connection, URI root) throws RepositoryException {
+        final ValueFactory valueFactory = connection.getValueFactory();
+        final Literal now = valueFactory.createLiteral(new Date());
+        if (!exists(connection, root)) {
+        	
+            String updateString = " INSERT DATA { GRAPH <" + LDP.NAMESPACE + "> { "
+            		+ " <" + root.stringValue() + "> <" + RDFS.LABEL.stringValue() + "> " + valueFactory.createLiteral("Marmotta's LDP Root Container").toString() + " . "
+            		+ " <" + root.stringValue() + "> rdf:type <" + LDP.Resource.stringValue() + "> . "
+            		+ " <" + root.stringValue() + "> rdf:type <" + LDP.RDFSource.stringValue() + "> . "
+            		+ " <" + root.stringValue() + "> rdf:type <" + LDP.Container.stringValue() + "> . "
+            		+ " <" + root.stringValue() + "> rdf:type <" + LDP.BasicContainer.stringValue() + "> . "
+            		+ " <" + root.stringValue() + "> <" + DCTERMS.created.stringValue() + "> " + now.toString() + " . "
+            		+ " <" + root.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . } }";
+            
+            update( connection, updateString);
+        }
+    }
+	
+	//Done
+	@Override
+    public String getResourceUri(UriInfo uriInfo) {
+        final UriBuilder uriBuilder = getResourceUriBuilder(uriInfo);
+        uriBuilder.path(uriInfo.getPathParameters().getFirst("local"));
+        // uriBuilder.path(uriInfo.getPath().replaceFirst("/$", ""));
+        String uri = uriBuilder.build().toString();
+        log.debug("Request URI: {}", uri);
+        return uri;
+    }
+
+	//Done
+	@Override
+    public UriBuilder getResourceUriBuilder(UriInfo uriInfo) {
+        final UriBuilder uriBuilder;
+        if (configurationService.getBooleanConfiguration("ldp.force_baseuri", false)) {
+            log.trace("UriBuilder is forced to configured baseuri <{}>", configurationService.getBaseUri());
+            uriBuilder = UriBuilder.fromUri(java.net.URI.create(configurationService.getBaseUri()));
+        } else {
+            uriBuilder = uriInfo.getBaseUriBuilder();
+        }
+        uriBuilder.path(LdpWebService.PATH);
+        return uriBuilder;
     }
 
     private URI buildURI(String resource) {
@@ -315,8 +365,7 @@ public class LdpServiceSPARQLImpl implements LdpService {
         
         String updateString = "WITH <" + LDP.NAMESPACE + "> "
         		+ " DELETE { <" + container.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date }"
-        		+ " INSERT { <" + container.stringValue() + "> rdf:type <" + LDP.Resource.stringValue() + "> . "
-        		+ " <" + container.stringValue() + "> rdf:type <" + LDP.RDFSource.stringValue() + "> . "
+        		+ " INSERT { <" + container.stringValue() + "> rdf:type <" + LDP.Resource.stringValue() + "> . "        		
         		+ " <" + container.stringValue() + "> rdf:type <" + LDP.Container.stringValue() + "> . "
         		+ " <" + container.stringValue() + "> rdf:type <" + LDP.BasicContainer.stringValue() + "> . "
         		+ " <" + container.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . "
@@ -327,7 +376,8 @@ public class LdpServiceSPARQLImpl implements LdpService {
         		+ " <" + resource.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> " + now.toString() + " . ";
         
         // Add the bodyContent
-        final RDFFormat rdfFormat = Rio.getParserFormatForMIMEType(type);
+        // TODO: find a better way to ingest n-triples (text/plain) while still supporting regular text files
+        final RDFFormat rdfFormat = ("text/plain".equals(type) ? null : Rio.getParserFormatForMIMEType(type));
         if (rdfFormat == null) {
             final Literal format = valueFactory.createLiteral(type);
             final URI binaryResource = valueFactory.createURI(resource.stringValue() + LdpUtils.getExtension(type));
@@ -342,7 +392,8 @@ public class LdpServiceSPARQLImpl implements LdpService {
 
         } else {
         	log.debug("POST creates new LDP-SR, data provided as {}", rdfFormat.getName());
-        	updateString += " <" + container.stringValue() + "> <" + LDP.contains.stringValue() + "> <" +resource.stringValue() + "> . ";
+        	updateString += " <" + container.stringValue() + "> rdf:type <" + LDP.RDFSource.stringValue() + "> . " 
+        			+ " <" + container.stringValue() + "> <" + LDP.contains.stringValue() + "> <" +resource.stringValue() + "> . ";
         }
         
         updateString += " } WHERE { OPTIONAL { <" + container.stringValue() + "> <" + DCTERMS.modified.stringValue() + "> ?date } }";
@@ -506,6 +557,9 @@ public class LdpServiceSPARQLImpl implements LdpService {
 		updateString = " CLEAR GRAPH <" + resource.stringValue() + "> ";
 		update(connection, updateString);
 
+		updateString = " INSERT DATA { GRAPH <" + LDP.NAMESPACE + "> { <" + resource.stringValue() + "> rdf:type <" + LDP.Resource.stringValue() + "> } } ";
+		update(connection, updateString);
+				
         return true;
     }
 
@@ -524,9 +578,11 @@ public class LdpServiceSPARQLImpl implements LdpService {
                 if (LDP.Resource.stringValue().equals(href)) {
                     log.debug("LDPR Interaction Model detected");
                     return InteractionModel.LDPR;
-                } else if (LDP.Resource.stringValue().equals(href)) {
+                } else if (LDP.Container.stringValue().equals(href) || LDP.BasicContainer.stringValue().equals(href)) {
                     log.debug("LDPC Interaction Model detected");
                     return InteractionModel.LDPC;
+                } else if (LDP.DirectContainer.stringValue().equals(href) || LDP.IndirectContainer.stringValue().equals(href)) {
+                    log.warn("only Basic Container interaction is supported");
                 } else {
                     log.debug("Invalid/Unknown LDP Interaction Model: {}", href);
                     throw new InvalidInteractionModelException(href);
@@ -565,21 +621,25 @@ public class LdpServiceSPARQLImpl implements LdpService {
         return InteractionModel.LDPC;
     }
 
-    //Done
-	@Override
-	public String updateResource(RepositoryConnection con, String resource,
-			InputStream stream, String type) throws RepositoryException,
-			IncompatibleResourceTypeException, RDFParseException, IOException,
-			InvalidModificationException {
-		return updateResource(con, buildURI(resource), stream, type);
-	}
+    @Override
+    public String updateResource(RepositoryConnection connection, final String resource, InputStream stream, final String type) throws RepositoryException, IncompatibleResourceTypeException, RDFParseException, IOException, InvalidModificationException {
+        return updateResource(connection, buildURI(resource), stream, type);
+    }
 
-	//Done
+    @Override
+    public String updateResource(final RepositoryConnection connection, final URI resource, InputStream stream, final String type) throws RepositoryException, IncompatibleResourceTypeException, IOException, RDFParseException, InvalidModificationException {
+        return updateResource(connection, resource, stream, type, false);
+    }
+
+    @Override
+    public String updateResource(RepositoryConnection connection, final String resource, InputStream stream, final String type, final boolean overwrite) throws RepositoryException, IncompatibleResourceTypeException, RDFParseException, IOException, InvalidModificationException {
+        return updateResource(connection, buildURI(resource), stream, type, false);
+    }
+
 	@Override
-	public String updateResource(final RepositoryConnection con, final URI resource,
-			InputStream stream, String type) throws RepositoryException,
-			IncompatibleResourceTypeException, IOException, RDFParseException,
-			InvalidModificationException {
+	public String updateResource(RepositoryConnection con, final URI resource, InputStream stream, final String type, final boolean overwrite)
+			throws RepositoryException, IncompatibleResourceTypeException,
+			IOException, RDFParseException, InvalidModificationException {
         final ValueFactory valueFactory = con.getValueFactory();
         final Literal now = valueFactory.createLiteral(new Date());
 
@@ -660,7 +720,6 @@ public class LdpServiceSPARQLImpl implements LdpService {
         }
 	}
 	
-	
 	private boolean ask(RepositoryConnection connection, String queryString) throws RepositoryException {
     	try {
 			BooleanQuery query= connection.prepareBooleanQuery(QueryLanguage.SPARQL, queryString);
@@ -703,6 +762,8 @@ public class LdpServiceSPARQLImpl implements LdpService {
 			throw new RepositoryException(e);
 		}
 	}
+
+
 }
 
 class IterationExceptionAdpter<T> implements Iteration<T,RepositoryException>{

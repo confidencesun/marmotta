@@ -115,6 +115,43 @@ public class LdpServiceSPARQLImplTest {
          }
          lpdService = null;
     }
+    
+    @Test
+    public void testInit() throws RepositoryException {
+    	RepositoryConnection conn = repo.getConnection();
+
+    	String root = "http://www.example.com/ldp#root";
+
+    	try {
+            conn.begin();
+
+            lpdService.init(conn, buildURI(root));
+
+    	} finally {
+            conn.commit();
+            conn.close();
+
+        }
+    	
+    	conn = repo.getConnection();
+    	try {
+            conn.begin();
+            
+            final ValueFactory valueFactory = conn.getValueFactory();
+            
+            Assert.assertTrue ( conn.hasStatement(buildURI(root), RDFS.LABEL, valueFactory.createLiteral("Marmotta's LDP Root Container"), true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI(root), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI(root), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI(root), RDF.TYPE, LDP.Container, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI(root), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI(root), DCTERMS.created, null, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI(root), DCTERMS.modified, null, true, ldpContext) );
+
+    	} finally {
+            conn.commit();
+            conn.close();
+    	}
+    }
 
     @Test
     public void testReopsitoryNotEmpty() throws RepositoryException {
@@ -353,7 +390,6 @@ public class LdpServiceSPARQLImplTest {
     	try {
             conn.begin();
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, ldpContext) );
-            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );
@@ -413,7 +449,7 @@ public class LdpServiceSPARQLImplTest {
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );
-            Assert.assertFalse ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.Resource, true, ldpContext) );
             Assert.assertFalse ( conn.hasStatement(buildURI (resource), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
             Assert.assertFalse ( conn.hasStatement(buildURI (resource), ldpInteractionModelProperty, InteractionModel.LDPR.getUri(), true, ldpContext) );
             Assert.assertFalse ( conn.hasStatement(buildURI (resource), DCTERMS.created, null, true, ldpContext) );
@@ -425,6 +461,7 @@ public class LdpServiceSPARQLImplTest {
             Assert.assertFalse ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.name, ValueFactoryImpl.getInstance().createLiteral("Egon Willighagen"), true, buildURI (resource)) );
             Assert.assertFalse ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), RDFS.SEEALSO, buildURI("http://blueobelisk.sourceforge.net/people/egonw/foaf.xml"), true, buildURI (resource)) );
             Assert.assertFalse ( conn.hasStatement(buildURI ("http://www.example.com/ldp#EgonWillighagen"), FOAF.knows, buildURI("http://www.example.com/ldp#me"), true, buildURI (resource)) );
+            
     	}
     	finally {
             conn.commit();
@@ -460,7 +497,6 @@ public class LdpServiceSPARQLImplTest {
     	try {
             conn.begin();
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, ldpContext) );
-            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );
@@ -473,7 +509,7 @@ public class LdpServiceSPARQLImplTest {
             Assert.assertFalse ( conn.hasStatement(buildURI (container), LDP.contains, binaryResource, true, ldpContext) );
             Assert.assertFalse ( conn.hasStatement(binaryResource, DCTERMS.created, null, true, ldpContext) );
             Assert.assertFalse ( conn.hasStatement(binaryResource, DCTERMS.modified, null, true, ldpContext) );
-            Assert.assertFalse ( conn.hasStatement(binaryResource, RDF.TYPE, LDP.Resource, true, ldpContext) );
+            Assert.assertTrue ( conn.hasStatement(binaryResource, RDF.TYPE, LDP.Resource, true, ldpContext) );
             Assert.assertFalse ( conn.hasStatement(binaryResource, RDF.TYPE, LDP.NonRDFSource, true, ldpContext) );
 
             Assert.assertFalse ( conn.hasStatement(binaryResource, DCTERMS.format, format, true, ldpContext) );
@@ -529,7 +565,6 @@ public class LdpServiceSPARQLImplTest {
     	try {
             conn.begin();
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Resource, true, ldpContext) );
-            Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.RDFSource, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.Container, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), RDF.TYPE, LDP.BasicContainer, true, ldpContext) );
             Assert.assertTrue ( conn.hasStatement(buildURI (container), DCTERMS.modified, null, true, ldpContext) );

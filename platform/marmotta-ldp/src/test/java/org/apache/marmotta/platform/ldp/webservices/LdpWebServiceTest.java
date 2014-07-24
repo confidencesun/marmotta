@@ -57,7 +57,6 @@ import com.jayway.restassured.RestAssured;
  * @author Sergio Fernández
  * @author Jakob Frank
  */
-@Ignore
 public class LdpWebServiceTest {
 
     private static Logger log = LoggerFactory.getLogger(LdpWebServiceTest.class);
@@ -82,7 +81,7 @@ public class LdpWebServiceTest {
 
     @AfterClass
     public static void shutdown() {
-        //marmotta.shutdown();
+        marmotta.shutdown();
         marmotta = null;
         testResourceTTL = null;
     }
@@ -419,11 +418,6 @@ public class LdpWebServiceTest {
                         CoreMatchers.not(SesameMatchers.hasStatement(uri, LDP.contains, uri))
                 ))
             .get(resource);
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        marmotta.shutdown();
     }
 
 }

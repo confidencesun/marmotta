@@ -35,9 +35,11 @@ import org.apache.marmotta.platform.ldp.patch.model.PatchLine;
 import org.apache.marmotta.platform.ldp.patch.parser.ParseException;
 import org.apache.marmotta.platform.ldp.patch.parser.RdfPatchParserImpl;
 import org.apache.marmotta.platform.ldp.util.LdpUtils;
+import org.apache.marmotta.platform.ldp.webservices.LdpWebService;
 import org.openrdf.model.*;
 import org.openrdf.model.impl.ValueFactoryImpl;
 import org.openrdf.model.vocabulary.RDF;
+import org.openrdf.model.vocabulary.RDFS;
 import org.openrdf.repository.RepositoryConnection;
 import org.openrdf.repository.RepositoryException;
 import org.openrdf.repository.RepositoryResult;
@@ -51,6 +53,8 @@ import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
 import javax.ws.rs.core.EntityTag;
 import javax.ws.rs.core.Link;
+import javax.ws.rs.core.UriBuilder;
+import javax.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -81,6 +85,44 @@ public class LdpServiceImpl implements LdpService {
     public LdpServiceImpl() {
         ldpContext = ValueFactoryImpl.getInstance().createURI(LDP.NAMESPACE);
         ldpInteractionModelProperty = ValueFactoryImpl.getInstance().createURI(LDP.NAMESPACE, "interactionModel");
+    }
+
+    @Override
+    public void init(RepositoryConnection connection, URI root) throws RepositoryException {
+        final ValueFactory valueFactory = connection.getValueFactory();
+        final Literal now = valueFactory.createLiteral(new Date());
+        if (!exists(connection, root)) {
+            connection.add(root, RDFS.LABEL, valueFactory.createLiteral("Marmotta's LDP Root Container"), ldpContext);
+            connection.add(root, RDF.TYPE, LDP.Resource, ldpContext);
+            connection.add(root, RDF.TYPE, LDP.RDFSource, ldpContext);
+            connection.add(root, RDF.TYPE, LDP.Container, ldpContext);
+            connection.add(root, RDF.TYPE, LDP.BasicContainer, ldpContext);
+            connection.add(root, DCTERMS.created, now, ldpContext);
+            connection.add(root, DCTERMS.modified, now, ldpContext);
+        }
+    }
+
+    @Override
+    public String getResourceUri(UriInfo uriInfo) {
+        final UriBuilder uriBuilder = getResourceUriBuilder(uriInfo);
+        uriBuilder.path(uriInfo.getPathParameters().getFirst("local"));
+        // uriBuilder.path(uriInfo.getPath().replaceFirst("/$", ""));
+        String uri = uriBuilder.build().toString();
+        log.debug("Request URI: {}", uri);
+        return uri;
+    }
+
+    @Override
+    public UriBuilder getResourceUriBuilder(UriInfo uriInfo) {
+        final UriBuilder uriBuilder;
+        if (configurationService.getBooleanConfiguration("ldp.force_baseuri", false)) {
+            log.trace("UriBuilder is forced to configured baseuri <{}>", configurationService.getBaseUri());
+            uriBuilder = UriBuilder.fromUri(java.net.URI.create(configurationService.getBaseUri()));
+        } else {
+            uriBuilder = uriInfo.getBaseUriBuilder();
+        }
+        uriBuilder.path(LdpWebService.PATH);
+        return uriBuilder;
     }
 
     private URI buildURI(String resource) {
@@ -281,13 +323,13 @@ public class LdpServiceImpl implements LdpService {
         connection.add(container, DCTERMS.modified, now, ldpContext);
 
         connection.add(resource, RDF.TYPE, LDP.Resource, ldpContext);
-        connection.add(resource, RDF.TYPE, LDP.RDFSource, ldpContext);
         connection.add(resource, ldpInteractionModelProperty, interactionModel.getUri(), ldpContext);
         connection.add(resource, DCTERMS.created, now, ldpContext);
         connection.add(resource, DCTERMS.modified, now, ldpContext);
 
         // Add the bodyContent
-        final RDFFormat rdfFormat = Rio.getParserFormatForMIMEType(type);
+        // TODO: find a better way to ingest n-triples (text/plain) while still supporting regular text files
+        final RDFFormat rdfFormat = ("text/plain".equals(type) ? null : Rio.getParserFormatForMIMEType(type));
         if (rdfFormat == null) {
             log.debug("POST creates new LDP-NR, because no suitable RDF parser found for type {}", type);
             final Literal format = valueFactory.createLiteral(type);
@@ -312,7 +354,8 @@ public class LdpServiceImpl implements LdpService {
 
             return binaryResource.stringValue();
         } else {
-            log.debug("POST creates new LDP-SR, data provided as {}", rdfFormat.getName());
+            log.debug("POST creates new LDP-RS, data provided as {}", rdfFormat.getName());
+            connection.add(resource, RDF.TYPE, LDP.RDFSource, ldpContext);
             connection.add(container, LDP.contains, resource, ldpContext);
 
             // FIXME: We are (are we?) allowed to filter out server-managed properties here
@@ -323,32 +366,42 @@ public class LdpServiceImpl implements LdpService {
     }
 
     @Override
-    public String updateResource(RepositoryConnection con, String resource, InputStream stream, String type) throws RepositoryException, IncompatibleResourceTypeException, RDFParseException, IOException, InvalidModificationException {
-        return updateResource(con, buildURI(resource), stream, type);
+    public String updateResource(RepositoryConnection connection, final String resource, InputStream stream, final String type) throws RepositoryException, IncompatibleResourceTypeException, RDFParseException, IOException, InvalidModificationException {
+        return updateResource(connection, buildURI(resource), stream, type);
     }
 
     @Override
-    public String updateResource(final RepositoryConnection con, final URI resource, InputStream stream, String type) throws RepositoryException, IncompatibleResourceTypeException, IOException, RDFParseException, InvalidModificationException {
-        final ValueFactory valueFactory = con.getValueFactory();
+    public String updateResource(final RepositoryConnection connection, final URI resource, InputStream stream, final String type) throws RepositoryException, IncompatibleResourceTypeException, IOException, RDFParseException, InvalidModificationException {
+        return updateResource(connection, resource, stream, type, false);
+    }
+
+    @Override
+    public String updateResource(RepositoryConnection connection, final String resource, InputStream stream, final String type, final boolean overwrite) throws RepositoryException, IncompatibleResourceTypeException, RDFParseException, IOException, InvalidModificationException {
+        return updateResource(connection, buildURI(resource), stream, type, false);
+    }
+
+    @Override
+    public String updateResource(RepositoryConnection connection, final URI resource, InputStream stream, final String type, final boolean overwrite) throws RepositoryException, IncompatibleResourceTypeException, RDFParseException, IOException, InvalidModificationException {
+        final ValueFactory valueFactory = connection.getValueFactory();
         final Literal now = valueFactory.createLiteral(new Date());
 
-        con.remove(resource, DCTERMS.modified, null, ldpContext);
-        con.add(resource, DCTERMS.modified, now, ldpContext);
+        connection.remove(resource, DCTERMS.modified, null, ldpContext);
+        connection.add(resource, DCTERMS.modified, now, ldpContext);
 
         final RDFFormat rdfFormat = Rio.getParserFormatForMIMEType(type);
         // Check submitted format vs. real resource type (RDF-S vs. Non-RDF)
-        if (rdfFormat == null && isNonRdfSourceResource(con, resource)) {
+        if (rdfFormat == null && isNonRdfSourceResource(connection, resource)) {
             log.debug("Updating <{}> as LDP-NR (binary) - {}", resource, type);
 
             final Literal format = valueFactory.createLiteral(type);
 
-            con.remove(resource, DCTERMS.format, null, ldpContext);
-            con.add(resource, DCTERMS.format, format, ldpContext); //nie:mimeType ?
+            connection.remove(resource, DCTERMS.format, null, ldpContext);
+            connection.add(resource, DCTERMS.format, format, ldpContext); //nie:mimeType ?
 
-            final URI ldp_rs = getRdfSourceForNonRdfSource(con, resource);
+            final URI ldp_rs = getRdfSourceForNonRdfSource(connection, resource);
             if (ldp_rs != null) {
-                con.remove(ldp_rs, DCTERMS.modified, null, ldpContext);
-                con.add(ldp_rs, DCTERMS.modified, now, ldpContext);
+                connection.remove(ldp_rs, DCTERMS.modified, null, ldpContext);
+                connection.add(ldp_rs, DCTERMS.modified, now, ldpContext);
                 log.trace("Updated Meta-Data of LDP-RS <{}> for LDP-NR <{}>; Modified: {}", ldp_rs, resource, now);
             } else {
                 log.debug("LDP-RS for LDP-NR <{}> not found", resource);
@@ -359,11 +412,11 @@ public class LdpServiceImpl implements LdpService {
 
             log.trace("LDP-NR <{}> updated", resource);
             return resource.stringValue();
-        } else if (rdfFormat != null && isRdfSourceResource(con, resource)) {
+        } else if (rdfFormat != null && isRdfSourceResource(connection, resource)) {
             log.debug("Updating <{}> as LDP-RS - {}", resource, rdfFormat.getDefaultMIMEType());
 
-            con.clear(resource);
-            final InterceptingRepositoryConnectionWrapper filtered = new InterceptingRepositoryConnectionWrapper(con.getRepository(), con);
+            connection.clear(resource);
+            final InterceptingRepositoryConnectionWrapper filtered = new InterceptingRepositoryConnectionWrapper(connection.getRepository(), connection);
             final Set<URI> deniedProperties = new HashSet<>();
             filtered.addRepositoryConnectionInterceptor(new RepositoryConnectionInterceptorAdapter() {
                 @Override
@@ -386,7 +439,7 @@ public class LdpServiceImpl implements LdpService {
             log.trace("LDP-RS <{}> updated", resource);
             return resource.stringValue();
         } else if (rdfFormat == null) {
-            final String mimeType = getMimeType(con, resource);
+            final String mimeType = getMimeType(connection, resource);
             log.debug("Incompatible replacement: Can't replace {} with {}", mimeType, type);
             throw new IncompatibleResourceTypeException(mimeType, type);
         } else {
@@ -503,8 +556,8 @@ public class LdpServiceImpl implements LdpService {
         try {
             while (stmts.hasNext()) {
                 Statement st = stmts.next();
-                connection.remove(st.getSubject(), DCTERMS.modified, null);
-                connection.add(st.getSubject(), DCTERMS.modified, now);
+                connection.remove(st.getSubject(), DCTERMS.modified, null, ldpContext);
+                connection.add(st.getSubject(), DCTERMS.modified, now, ldpContext);
                 connection.remove(st);
             }
         } finally {
@@ -533,7 +586,9 @@ public class LdpServiceImpl implements LdpService {
         // Delete the resource data
         connection.clear(resource);
 
-        // FIXME: Sec. 5.2.3.11: LDP servers that allow member creation via POST should not re-use URIs.
+        // Sec. 5.2.3.11: LDP servers that allow member creation via POST should not re-use URIs.
+        connection.add(resource, RDF.TYPE, LDP.Resource, ldpContext);
+        //TODO: keep the track if was there work, but is a good idea?
 
         return true;
     }
@@ -552,7 +607,11 @@ public class LdpServiceImpl implements LdpService {
                 if (LDP.Resource.stringValue().equals(href)) {
                     log.debug("LDPR Interaction Model detected");
                     return InteractionModel.LDPR;
-                } else if (LDP.Resource.stringValue().equals(href)) {
+                } else if (LDP.Container.stringValue().equals(href) || LDP.BasicContainer.stringValue().equals(href)) {
+                    log.debug("LDPC Interaction Model detected");
+                    return InteractionModel.LDPC;
+                } else if (LDP.DirectContainer.stringValue().equals(href) || LDP.IndirectContainer.stringValue().equals(href)) {
+                    log.warn("only Basic Container interaction is supported");
                     log.debug("LDPC Interaction Model detected");
                     return InteractionModel.LDPC;
                 } else {
